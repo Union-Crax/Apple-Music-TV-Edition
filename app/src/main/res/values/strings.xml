@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Apple Music TV</string>
+    <string name="recently_played">Recently Played</string>
+    <string name="playlists">Playlists</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="lyrics">Lyrics</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="previous">Previous</string>
+    <string name="next">Next</string>
+    <string name="album_art_description">%1$s album artwork</string>
+    <string name="tracks_count">%1$d tracks</string>
+</resources>
