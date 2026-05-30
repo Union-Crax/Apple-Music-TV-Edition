@@ -8,117 +8,141 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for [MockData] to verify the catalogue contents and lookup helpers.
- *
- * These tests run on the JVM (no Android framework required).
+ * JVM unit tests for [MockData] — verifies catalogue integrity, lookups, and search.
  */
 class MockDataTest {
 
-    // ── recentlyPlayed ────────────────────────────────────────────────────────
+    // ── Catalogue contents ───────────────────────────────────────────────────────
 
     @Test
-    fun `recentlyPlayed contains at least one track`() {
+    fun `recentlyPlayed is not empty`() {
         assertTrue(MockData.recentlyPlayed.isNotEmpty())
     }
 
     @Test
-    fun `all recentlyPlayed tracks have non-blank titles and artists`() {
-        MockData.recentlyPlayed.forEach { track ->
-            assertTrue("Title should not be blank for ${track.id}", track.title.isNotBlank())
-            assertTrue("Artist should not be blank for ${track.id}", track.artist.isNotBlank())
+    fun `all tracks have non-blank title and artist`() {
+        MockData.allTracks.forEach {
+            assertTrue("title blank for ${it.id}", it.title.isNotBlank())
+            assertTrue("artist blank for ${it.id}", it.artist.isNotBlank())
         }
     }
 
     @Test
-    fun `all recentlyPlayed tracks have positive duration`() {
-        MockData.recentlyPlayed.forEach { track ->
-            assertTrue("Duration should be positive for ${track.id}", track.durationMs > 0)
-        }
+    fun `all tracks have positive duration`() {
+        MockData.allTracks.forEach { assertTrue("duration for ${it.id}", it.durationMs > 0) }
     }
 
     @Test
-    fun `all recentlyPlayed artwork URLs are non-blank`() {
-        MockData.recentlyPlayed.forEach { track ->
-            assertTrue("Artwork URL should not be blank for ${track.id}", track.artworkUrl.isNotBlank())
-        }
+    fun `track ids are unique`() {
+        val ids = MockData.allTracks.map { it.id }
+        assertEquals("track ids must be unique", ids.size, ids.toSet().size)
     }
 
     @Test
-    fun `recentlyPlayed track IDs are unique`() {
-        val ids = MockData.recentlyPlayed.map { it.id }
-        assertEquals("Track IDs must be unique", ids.size, ids.toSet().size)
+    fun `stations are marked live`() {
+        assertTrue(MockData.stations.isNotEmpty())
+        MockData.stations.forEach { assertTrue("station ${it.id} should be live", it.isLive) }
     }
 
-    // ── playlists ─────────────────────────────────────────────────────────────
+    // ── Playlists ─────────────────────────────────────────────────────────────────
 
     @Test
-    fun `playlists contains at least one playlist`() {
+    fun `playlists are not empty and well formed`() {
         assertTrue(MockData.playlists.isNotEmpty())
-    }
-
-    @Test
-    fun `all playlists have non-blank names`() {
-        MockData.playlists.forEach { playlist ->
-            assertTrue("Playlist name should not be blank for ${playlist.id}", playlist.name.isNotBlank())
+        MockData.playlists.forEach {
+            assertTrue("name blank for ${it.id}", it.name.isNotBlank())
+            assertTrue("subtitle blank for ${it.id}", it.subtitle.isNotBlank())
+            assertTrue("track count for ${it.id}", it.trackCount > 0)
         }
     }
 
     @Test
-    fun `all playlists have positive track count`() {
-        MockData.playlists.forEach { playlist ->
-            assertTrue("Track count should be positive for ${playlist.id}", playlist.trackCount > 0)
-        }
-    }
-
-    @Test
-    fun `playlist IDs are unique`() {
+    fun `playlist ids are unique`() {
         val ids = MockData.playlists.map { it.id }
-        assertEquals("Playlist IDs must be unique", ids.size, ids.toSet().size)
+        assertEquals(ids.size, ids.toSet().size)
     }
 
-    // ── getTrack ──────────────────────────────────────────────────────────────
+    @Test
+    fun `every playlist track id resolves to a real track`() {
+        MockData.playlists.forEach { pl ->
+            val resolved = MockData.tracksFor(pl)
+            assertEquals(
+                "playlist ${pl.id} has dangling track ids",
+                pl.trackIds.size,
+                resolved.size,
+            )
+        }
+    }
+
+    // ── Lookups ───────────────────────────────────────────────────────────────────
 
     @Test
     fun `getTrack returns correct track for known id`() {
         val track = MockData.getTrack("1")
         assertNotNull(track)
-        assertEquals("1", track?.id)
         assertEquals("Blinding Lights", track?.title)
     }
 
     @Test
     fun `getTrack returns null for unknown id`() {
-        assertNull(MockData.getTrack("nonexistent_id_xyz"))
+        assertNull(MockData.getTrack("nope_xyz"))
     }
 
-    // ── getLyrics ─────────────────────────────────────────────────────────────
+    @Test
+    fun `getPlaylist resolves and exposes tracks`() {
+        val pl = MockData.getPlaylist("p1")
+        assertNotNull(pl)
+        assertTrue(MockData.tracksFor(pl!!).isNotEmpty())
+    }
+
+    // ── Lyrics ────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `getLyrics returns non-empty list for track 1`() {
+    fun `getLyrics returns lines for track 1 in ascending order`() {
         val lyrics = MockData.getLyrics("1")
         assertTrue(lyrics.isNotEmpty())
+        var prev = -1L
+        lyrics.forEach {
+            assertTrue("timestamp non-negative", it.timeMs >= 0)
+            assertTrue("timestamps ascending", it.timeMs >= prev)
+            prev = it.timeMs
+        }
     }
 
     @Test
-    fun `getLyrics returns empty list for track with no lyrics`() {
-        val lyrics = MockData.getLyrics("2") // track 2 has no mock lyrics
-        assertTrue(lyrics.isEmpty())
+    fun `getLyrics is empty for a track without lyrics`() {
+        assertTrue(MockData.getLyrics("3").isEmpty())
     }
 
     @Test
-    fun `getLyrics returns empty list for unknown track id`() {
+    fun `getLyrics is empty for unknown id`() {
         assertTrue(MockData.getLyrics("unknown_xyz").isEmpty())
     }
 
+    // ── Search ──────────────────────────────────────────────────────────────────────
+
     @Test
-    fun `lyric timestamps are non-negative and in ascending order`() {
-        val lyrics = MockData.getLyrics("1")
-        assertTrue(lyrics.isNotEmpty())
-        var previous = -1L
-        lyrics.forEach { line ->
-            assertTrue("Timestamp should be non-negative", line.timeMs >= 0)
-            assertTrue("Timestamps should be ascending", line.timeMs >= previous)
-            previous = line.timeMs
-        }
+    fun `searchTracks finds all songs by an artist`() {
+        val results = MockData.searchTracks("weeknd").map { it.id }
+        assertTrue("expected Blinding Lights", results.contains("1"))
+        assertTrue("expected Starboy", results.contains("11"))
+    }
+
+    @Test
+    fun `searchTracks is case-insensitive`() {
+        assertEquals(
+            MockData.searchTracks("DUA").map { it.id },
+            MockData.searchTracks("dua").map { it.id },
+        )
+    }
+
+    @Test
+    fun `searchTracks returns empty for blank query`() {
+        assertTrue(MockData.searchTracks("   ").isEmpty())
+    }
+
+    @Test
+    fun `searchPlaylists matches name`() {
+        assertTrue(MockData.searchPlaylists("focus").any { it.id == "p4" })
     }
 }
