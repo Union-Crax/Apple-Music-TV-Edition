@@ -61,15 +61,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Compose for TV – provides TvLazyRow/Column/HorizontalGrid + TV-optimised Material3 widgets
+    // Compose for TV – provides TvLazyRow/TvLazyColumn with proper D-pad focus scrolling
     implementation("androidx.tv:tv-foundation:1.0.0-alpha11")
     implementation("androidx.tv:tv-material:1.0.0-beta01")
-
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-
-    // Coil – image loading with built-in blur transformation support
-    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Unit tests
     testImplementation("junit:junit:4.13.2")
