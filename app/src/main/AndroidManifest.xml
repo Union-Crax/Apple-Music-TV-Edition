@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Network access for loading album artwork -->
+    <!-- Network access for loading album artwork and streaming previews -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Declare this is an Android TV app; set required=false so it also runs on phones for development -->
     <uses-feature
@@ -14,6 +15,7 @@
         android:required="false" />
 
     <application
+        android:name=".AppleMusicTvApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

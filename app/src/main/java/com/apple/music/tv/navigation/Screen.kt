@@ -3,14 +3,20 @@ package com.apple.music.tv.navigation
 /** All navigable destinations in the app. */
 sealed class Screen(val route: String) {
 
-    /** Main dashboard showing Recently Played and Playlists grids. */
-    object Dashboard : Screen("dashboard")
+    /** Root shell hosting the Home / Search tabs and the persistent mini-player. */
+    object Home : Screen("home")
 
-    /** Full-screen Now Playing view for a specific track. */
-    object NowPlaying : Screen("now_playing/{trackId}") {
-        const val ARG_TRACK_ID = "trackId"
+    /**
+     * Full-screen Now Playing view.
+     *
+     * The screen reflects whatever the shared player is currently playing, so it needs
+     * no arguments — selecting a track elsewhere sets the queue before navigating here.
+     */
+    object NowPlaying : Screen("now_playing")
+}
 
-        /** Builds the concrete navigation route for a given [trackId]. */
-        fun createRoute(trackId: String): String = "now_playing/$trackId"
-    }
+/** Top-level tabs shown in the home navigation bar. */
+enum class HomeTab(val label: String) {
+    HOME("Home"),
+    SEARCH("Search"),
 }

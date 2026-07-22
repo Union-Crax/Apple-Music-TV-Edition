@@ -2,97 +2,51 @@ package com.apple.music.tv.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.apple.music.tv.data.MockData
 import com.apple.music.tv.data.model.LyricLine
 import com.apple.music.tv.data.model.Track
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.apple.music.tv.data.repository.MusicRepository
+import com.apple.music.tv.di.ServiceLocator
+import com.apple.music.tv.playback.PlayerController
+import com.apple.music.tv.playback.RepeatMode
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 /**
  * ViewModel for the Now Playing screen.
  *
- * Manages mock playback state: the currently loaded track, a running timer that
- * advances [currentPositionMs], and a play / pause toggle.  No real audio
- * playback is wired up in this starter implementation.
+ * This is a thin adapter over the process-wide [PlayerController]: it re-exposes the
+ * player's real playback state (position, buffering, queue, shuffle/repeat) and derives
+ * synchronized lyrics for whatever track is currently playing. No playback state is
+ * duplicated here, so Now Playing, the mini-player, and any other screen stay in sync.
  */
-class NowPlayingViewModel : ViewModel() {
+class NowPlayingViewModel(
+    private val player: PlayerController = ServiceLocator.player,
+    private val repository: MusicRepository = ServiceLocator.repository,
+) : ViewModel() {
 
-    private val _currentTrack = MutableStateFlow<Track?>(null)
-    val currentTrack: StateFlow<Track?> = _currentTrack.asStateFlow()
+    val currentTrack: StateFlow<Track?> = player.currentTrack
+    val isPlaying: StateFlow<Boolean> = player.isPlaying
+    val isBuffering: StateFlow<Boolean> = player.isBuffering
+    val positionMs: StateFlow<Long> = player.positionMs
+    val durationMs: StateFlow<Long> = player.durationMs
+    val queue: StateFlow<List<Track>> = player.queue
+    val currentIndex: StateFlow<Int> = player.currentIndex
+    val shuffle: StateFlow<Boolean> = player.shuffle
+    val repeatMode: StateFlow<RepeatMode> = player.repeatMode
 
-    private val _isPlaying = MutableStateFlow(false)
-    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+    /** Synchronized lyrics for the currently playing track (empty when unavailable). */
+    val lyrics: StateFlow<List<LyricLine>> = player.currentTrack
+        .map { track -> track?.let { repository.getLyrics(it) } ?: emptyList() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _currentPositionMs = MutableStateFlow(0L)
-    val currentPositionMs: StateFlow<Long> = _currentPositionMs.asStateFlow()
-
-    private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
-    val lyrics: StateFlow<List<LyricLine>> = _lyrics.asStateFlow()
-
-    private var playbackJob: Job? = null
-
-    /**
-     * Loads the track identified by [trackId] from [MockData] and starts playback
-     * from the beginning.
-     */
-    fun loadTrack(trackId: String) {
-        val track = MockData.getTrack(trackId) ?: MockData.recentlyPlayed.first()
-        _currentTrack.value = track
-        _currentPositionMs.value = 0L
-        _lyrics.value = MockData.getLyrics(trackId)
-        startPlayback(track.durationMs)
-    }
-
-    /** Toggles between playing and paused states. */
-    fun togglePlayPause() {
-        val track = _currentTrack.value ?: return
-        if (_isPlaying.value) {
-            pausePlayback()
-        } else {
-            startPlayback(track.durationMs)
-        }
-    }
-
-    /** Seeks to the given absolute position (clamped to track duration). */
-    fun seekTo(positionMs: Long) {
-        val duration = _currentTrack.value?.durationMs ?: return
-        _currentPositionMs.value = positionMs.coerceIn(0L, duration)
-    }
-
-    private fun startPlayback(durationMs: Long) {
-        playbackJob?.cancel()
-        _isPlaying.value = true
-        playbackJob = viewModelScope.launch {
-            while (isActive) {
-                delay(TICK_MS)
-                val newPosition = _currentPositionMs.value + TICK_MS
-                if (newPosition >= durationMs) {
-                    // Loop back to the beginning
-                    _currentPositionMs.value = 0L
-                } else {
-                    _currentPositionMs.value = newPosition
-                }
-            }
-        }
-    }
-
-    private fun pausePlayback() {
-        _isPlaying.value = false
-        playbackJob?.cancel()
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        playbackJob?.cancel()
-    }
-
-    companion object {
-        /** Timer resolution: advance playback position every 100 ms. */
-        private const val TICK_MS = 100L
-    }
+    fun togglePlayPause() = player.togglePlayPause()
+    fun next() = player.next()
+    fun previous() = player.previous()
+    fun seekTo(positionMs: Long) = player.seekTo(positionMs)
+    fun seekBy(deltaMs: Long) = player.seekBy(deltaMs)
+    fun toggleShuffle() = player.toggleShuffle()
+    fun cycleRepeat() = player.cycleRepeatMode()
+    fun playIndex(index: Int) = player.playIndex(index)
 }

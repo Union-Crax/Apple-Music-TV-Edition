@@ -5,10 +5,16 @@ import com.apple.music.tv.data.model.Playlist
 import com.apple.music.tv.data.model.Track
 
 /**
- * In-memory mock catalogue used by the UI until a real Apple Music API integration is wired up.
+ * In-memory fallback catalogue.
+ *
+ * The app normally streams **real** data (artwork + playable previews) from Apple's
+ * public iTunes catalogue via [com.apple.music.tv.data.repository.MusicRepository].
+ * This object exists so the UI still renders something meaningful when the device is
+ * offline or the network request fails — the shelves populate, cards focus, and
+ * navigation works even without connectivity.
  *
  * Artwork URLs use picsum.photos with deterministic seeds so the same image is always
- * returned for the same item, making the UI preview stable across runs.
+ * returned for the same item, keeping the offline preview stable across runs.
  */
 object MockData {
 
@@ -22,6 +28,7 @@ object MockData {
             album = "After Hours",
             artworkUrl = "https://picsum.photos/seed/track1/600/600",
             durationMs = 200_000L,
+            genre = "Pop",
         ),
         Track(
             id = "2",
@@ -30,6 +37,7 @@ object MockData {
             album = "Midnights",
             artworkUrl = "https://picsum.photos/seed/track2/600/600",
             durationMs = 195_000L,
+            genre = "Pop",
         ),
         Track(
             id = "3",
@@ -38,6 +46,7 @@ object MockData {
             album = "Harry's House",
             artworkUrl = "https://picsum.photos/seed/track3/600/600",
             durationMs = 167_000L,
+            genre = "Pop",
         ),
         Track(
             id = "4",
@@ -46,6 +55,7 @@ object MockData {
             album = "F*CK LOVE 3",
             artworkUrl = "https://picsum.photos/seed/track4/600/600",
             durationMs = 141_000L,
+            genre = "Pop",
         ),
         Track(
             id = "5",
@@ -54,6 +64,7 @@ object MockData {
             album = "Future Nostalgia",
             artworkUrl = "https://picsum.photos/seed/track5/600/600",
             durationMs = 203_000L,
+            genre = "Dance",
         ),
         Track(
             id = "6",
@@ -62,48 +73,70 @@ object MockData {
             album = "Justice",
             artworkUrl = "https://picsum.photos/seed/track6/600/600",
             durationMs = 198_000L,
+            genre = "Pop",
         ),
     )
 
-    // ── Playlists ─────────────────────────────────────────────────────────────────
+    // ── Playlists / Mixes ─────────────────────────────────────────────────────────
+    // Each mix is backed by an Apple Music search term. Selecting one loads the
+    // matching real catalogue tracks into the playback queue.
 
     val playlists: List<Playlist> = listOf(
         Playlist(
             id = "p1",
             name = "Chill Vibes",
+            description = "Laid-back tracks to unwind",
             artworkUrl = "https://picsum.photos/seed/playlist1/600/600",
+            term = "chill acoustic",
             trackCount = 42,
         ),
         Playlist(
             id = "p2",
             name = "Workout Mix",
+            description = "High-energy hits to move to",
             artworkUrl = "https://picsum.photos/seed/playlist2/600/600",
+            term = "workout hits",
             trackCount = 28,
         ),
         Playlist(
             id = "p3",
             name = "Top Hits 2024",
+            description = "The songs everyone's playing",
             artworkUrl = "https://picsum.photos/seed/playlist3/600/600",
+            term = "top hits 2024",
             trackCount = 50,
         ),
         Playlist(
             id = "p4",
             name = "Late Night Drive",
+            description = "Moody synths for the road",
             artworkUrl = "https://picsum.photos/seed/playlist4/600/600",
+            term = "synthwave night drive",
             trackCount = 35,
         ),
         Playlist(
             id = "p5",
             name = "Morning Coffee",
+            description = "A gentle start to the day",
             artworkUrl = "https://picsum.photos/seed/playlist5/600/600",
+            term = "acoustic morning coffee",
             trackCount = 20,
+        ),
+        Playlist(
+            id = "p6",
+            name = "Hip-Hop Central",
+            description = "Bars, beats and bangers",
+            artworkUrl = "https://picsum.photos/seed/playlist6/600/600",
+            term = "hip hop",
+            trackCount = 60,
         ),
     )
 
     // ── Synchronized Lyrics ───────────────────────────────────────────────────────
+    // Keyed by a normalized song title so lyrics resolve for both mock and live tracks.
 
-    private val lyricsMap: Map<String, List<LyricLine>> = mapOf(
-        "1" to listOf(
+    private val lyricsByTitle: Map<String, List<LyricLine>> = mapOf(
+        "blinding lights" to listOf(
             LyricLine(0L, ""),
             LyricLine(3_000L, "I've been tryna call"),
             LyricLine(6_500L, "I've been on my own for long enough"),
@@ -134,8 +167,16 @@ object MockData {
     fun getTrack(id: String): Track? = recentlyPlayed.find { it.id == id }
 
     /**
-     * Returns the timestamped lyrics for the given [trackId].
-     * Returns an empty list when no lyrics are available (instrumental tracks, etc.).
+     * Returns the timestamped lyrics for the mock track [id].
+     * Returns an empty list when no lyrics are available.
      */
-    fun getLyrics(trackId: String): List<LyricLine> = lyricsMap[trackId] ?: emptyList()
+    fun getLyrics(id: String): List<LyricLine> =
+        getTrack(id)?.let { getLyricsForTitle(it.title) } ?: emptyList()
+
+    /**
+     * Returns timestamped lyrics that match the given song [title] (case-insensitive),
+     * so lyrics resolve for live catalogue tracks too. Empty when unavailable.
+     */
+    fun getLyricsForTitle(title: String): List<LyricLine> =
+        lyricsByTitle[title.trim().lowercase()] ?: emptyList()
 }

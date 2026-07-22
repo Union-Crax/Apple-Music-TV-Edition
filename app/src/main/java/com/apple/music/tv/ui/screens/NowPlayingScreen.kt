@@ -12,20 +12,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,72 +34,63 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.apple.music.tv.data.MockData
+import com.apple.music.tv.data.model.Track
+import com.apple.music.tv.playback.RepeatMode
 import com.apple.music.tv.ui.components.LyricsPanel
 import com.apple.music.tv.ui.theme.AppleMusicRed
 import com.apple.music.tv.ui.theme.BackgroundDark
+import com.apple.music.tv.ui.util.formatMillis
 import com.apple.music.tv.viewmodel.NowPlayingViewModel
-import java.util.Locale
 
 /**
- * Full-screen Now Playing experience.
+ * Full-screen Now Playing experience, driven entirely by the shared ExoPlayer state.
  *
- * Layout (landscape):
- *  ┌──────────────────────────────────────────────────────────────────┐
- *  │  [blurred album art fills entire background]                     │
- *  │  ┌─────────────┐   ┌───────────────────────────────────────┐    │
- *  │  │             │   │  Track title                          │    │
- *  │  │  Album art  │   │  Artist · Album                       │    │
- *  │  │  (hi-res)   │   │  ──────────────────── progress bar    │    │
- *  │  │             │   │  [◀◀]  [▶ / ‖]  [▶▶]                 │    │
- *  │  │             │   │                                        │    │
- *  │  │             │   │  Lyrics                               │    │
- *  │  │             │   │  (synchronized, auto-scrolling)       │    │
- *  │  └─────────────┘   └───────────────────────────────────────┘    │
- *  └──────────────────────────────────────────────────────────────────┘
+ * Left: high-resolution album art over a blurred backdrop. Right: track metadata, a live
+ * progress bar, a full transport (shuffle · previous · play/pause · next · repeat), and
+ * either synchronized lyrics or an "Up Next" queue depending on availability.
  *
- * The background uses [Modifier.blur] applied to an [AsyncImage] loaded by Coil.
- * A dark gradient overlay ensures text remains legible over any album artwork.
- *
- * Playback state is managed by [NowPlayingViewModel].  The lyrics list auto-
- * scrolls to keep the currently active line centred in the lyrics panel.
- *
- * @param trackId  ID of the track to display (matches [com.apple.music.tv.data.model.Track.id]).
- * @param onBack   Callback invoked when the user presses Back / D-pad Back.
- * @param viewModel ViewModel instance (injected by default via [viewModel]).
+ * @param onBack     Callback invoked when the user presses Back / the D-pad back key.
+ * @param viewModel  Player-backed ViewModel (shared with the mini-player).
  */
 @Composable
 fun NowPlayingScreen(
-    trackId: String,
     onBack: () -> Unit,
     viewModel: NowPlayingViewModel = viewModel(),
 ) {
-    // Handle Android TV back button / remote back key
     BackHandler(onBack = onBack)
 
-    // Load the requested track when the screen first appears (or when trackId changes)
-    LaunchedEffect(trackId) {
-        viewModel.loadTrack(trackId)
+    val track by viewModel.currentTrack.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
+    val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
+    val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
+    val lyrics by viewModel.lyrics.collectAsStateWithLifecycle()
+    val queue by viewModel.queue.collectAsStateWithLifecycle()
+    val currentIndex by viewModel.currentIndex.collectAsStateWithLifecycle()
+    val shuffle by viewModel.shuffle.collectAsStateWithLifecycle()
+    val repeatMode by viewModel.repeatMode.collectAsStateWithLifecycle()
+
+    val displayTrack = track
+
+    if (displayTrack == null) {
+        EmptyPlaybackState()
+        return
     }
 
-    val track by viewModel.currentTrack.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val currentPositionMs by viewModel.currentPositionMs.collectAsState()
-    val lyrics by viewModel.lyrics.collectAsState()
-
-    // Fallback to first track so the layout is never empty while the track loads
-    val displayTrack = track ?: MockData.recentlyPlayed.first()
-
-    // Determine the index of the currently active lyric line
-    val currentLyricIndex = remember(currentPositionMs, lyrics) {
-        lyrics.indexOfLast { it.timeMs <= currentPositionMs }.coerceAtLeast(0)
+    val currentLyricIndex = remember(positionMs, lyrics) {
+        lyrics.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0)
     }
 
     Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
@@ -107,7 +98,7 @@ fun NowPlayingScreen(
         // ── Blurred background ────────────────────────────────────────────────
         AsyncImage(
             model = displayTrack.artworkUrl,
-            contentDescription = null, // decorative
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
@@ -117,14 +108,12 @@ fun NowPlayingScreen(
                     edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded,
                 ),
         )
-
-        // Dark gradient overlay for legibility (darker on the left where text lives)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     brush = Brush.horizontalGradient(
-                        0.0f to Color.Black.copy(alpha = 0.80f),
+                        0.0f to Color.Black.copy(alpha = 0.82f),
                         0.6f to Color.Black.copy(alpha = 0.55f),
                         1.0f to Color.Black.copy(alpha = 0.30f),
                     ),
@@ -135,28 +124,24 @@ fun NowPlayingScreen(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 64.dp, vertical = 48.dp),
+                .padding(horizontal = 56.dp, vertical = 40.dp),
             horizontalArrangement = Arrangement.spacedBy(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
 
-            // ── High-resolution album art ─────────────────────────────────────
             AsyncImage(
                 model = displayTrack.artworkUrl,
                 contentDescription = "${displayTrack.title} artwork",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(320.dp)
+                    .size(340.dp)
                     .clip(RoundedCornerShape(16.dp)),
             )
 
-            // ── Right panel: track info + controls + lyrics ───────────────────
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-
-                // Track title
                 Text(
                     text = displayTrack.title,
                     style = MaterialTheme.typography.headlineLarge,
@@ -164,8 +149,6 @@ fun NowPlayingScreen(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-
-                // Artist
                 Text(
                     text = displayTrack.artist,
                     style = MaterialTheme.typography.titleLarge,
@@ -173,115 +156,118 @@ fun NowPlayingScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-
-                // Album
                 Text(
                     text = displayTrack.album,
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.50f),
+                    color = Color.White.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
 
                 // ── Progress bar ──────────────────────────────────────────────
-                val progress =
-                    if (displayTrack.durationMs > 0L) {
-                        (currentPositionMs.toFloat() / displayTrack.durationMs).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
+                val progress = if (durationMs > 0L) {
+                    (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+                } else 0f
 
-                LinearProgressIndicator(
-                    progress = { progress },
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = AppleMusicRed,
-                    trackColor = Color.White.copy(alpha = 0.30f),
-                )
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White.copy(alpha = 0.25f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(AppleMusicRed),
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = formatMillis(currentPositionMs),
+                        text = formatMillis(positionMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f),
                     )
                     Text(
-                        text = formatMillis(displayTrack.durationMs),
+                        text = if (durationMs > 0L) formatMillis(durationMs) else "0:30",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f),
                     )
                 }
 
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
 
-                // ── Playback controls ─────────────────────────────────────────
-                // Surface from tv-material3 gives each button a TV focus ring,
-                // correct keyboard/D-pad activation, and the right ripple behaviour.
+                // ── Transport controls ────────────────────────────────────────
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Previous
                     ControlButton(
-                        onClick = {
-                            // Restart from the beginning (no previous track in mock data)
-                            viewModel.seekTo(0L)
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipPrevious,
-                            contentDescription = "Previous",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
+                        icon = Icons.Filled.Shuffle,
+                        contentDescription = "Shuffle",
+                        active = shuffle,
+                        onClick = viewModel::toggleShuffle,
+                    )
+                    ControlButton(
+                        icon = Icons.Filled.SkipPrevious,
+                        contentDescription = "Previous",
+                        onClick = viewModel::previous,
+                    )
 
-                    // Play / Pause – slightly larger and accent-coloured to draw focus
+                    // Play / Pause – larger, accent-coloured focal control.
                     Surface(
-                        onClick = { viewModel.togglePlayPause() },
-                        modifier = Modifier.size(64.dp),
-                        shape = CircleShape,
+                        onClick = viewModel::togglePlayPause,
+                        modifier = Modifier.size(72.dp),
+                        shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = AppleMusicRed,
                             contentColor = Color.White,
-                            focusedContainerColor = AppleMusicRed,
-                            focusedContentColor = Color.White,
+                            focusedContainerColor = Color.White,
+                            focusedContentColor = AppleMusicRed,
                         ),
-                        scale = ClickableSurfaceDefaults.scale(
-                            focusedScale = 1.10f,
-                        ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.10f),
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(40.dp),
-                            )
+                            if (isBuffering) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 3.dp,
+                                    modifier = Modifier.size(32.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    modifier = Modifier.size(40.dp),
+                                )
+                            }
                         }
                     }
 
-                    // Next
-                    ControlButton(onClick = { /* TODO: advance to next track */ }) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipNext,
-                            contentDescription = "Next",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
+                    ControlButton(
+                        icon = Icons.Filled.SkipNext,
+                        contentDescription = "Next",
+                        onClick = viewModel::next,
+                    )
+                    ControlButton(
+                        icon = if (repeatMode == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                        contentDescription = "Repeat",
+                        active = repeatMode != RepeatMode.OFF,
+                        onClick = viewModel::cycleRepeat,
+                    )
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
 
-                // ── Synchronized lyrics ───────────────────────────────────────
+                // ── Lyrics OR Up Next ─────────────────────────────────────────
                 if (lyrics.isNotEmpty()) {
                     Text(
                         text = "Lyrics",
@@ -293,6 +279,19 @@ fun NowPlayingScreen(
                         currentIndex = currentLyricIndex,
                         modifier = Modifier.weight(1f),
                     )
+                } else if (queue.size > 1) {
+                    Text(
+                        text = "Up Next",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.65f),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    UpNextList(
+                        queue = queue,
+                        currentIndex = currentIndex,
+                        onPlayIndex = viewModel::playIndex,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -301,37 +300,99 @@ fun NowPlayingScreen(
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
-/**
- * Focusable icon button styled for the TV remote control.
- * Wraps [Surface] from [androidx.tv.material3] to inherit TV focus handling.
- */
+/** Focusable icon button styled for the TV remote; [active] tints it with the accent. */
 @Composable
 private fun ControlButton(
+    icon: ImageVector,
+    contentDescription: String,
     onClick: () -> Unit,
-    content: @Composable () -> Unit,
+    active: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(48.dp),
-        shape = CircleShape,
+        modifier = Modifier.size(52.dp),
+        shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.15f),
+            containerColor = if (active) AppleMusicRed.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.15f),
             contentColor = Color.White,
-            focusedContainerColor = Color.White.copy(alpha = 0.30f),
+            focusedContainerColor = if (active) AppleMusicRed else Color.White.copy(alpha = 0.30f),
             focusedContentColor = Color.White,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.10f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            content()
+            Icon(imageVector = icon, contentDescription = contentDescription, modifier = Modifier.size(28.dp))
         }
     }
 }
 
-/** Formats [millis] as `m:ss` (e.g. `3:25`). */
-private fun formatMillis(millis: Long): String {
-    val totalSeconds = millis / 1_000L
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return String.format(Locale.US, "%d:%02d", minutes, seconds)
+@Composable
+private fun UpNextList(
+    queue: List<Track>,
+    currentIndex: Int,
+    onPlayIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        itemsIndexed(queue) { index, item ->
+            if (index <= currentIndex) return@itemsIndexed
+            Surface(
+                onClick = { onPlayIndex(index) },
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color.White.copy(alpha = 0.06f),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White.copy(alpha = 0.18f),
+                    focusedContentColor = Color.White,
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AsyncImage(
+                        model = item.artworkUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = item.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.65f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPlaybackState() {
+    Box(
+        modifier = Modifier.fillMaxSize().background(BackgroundDark),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Nothing playing yet.\nPick a song to start listening.",
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White.copy(alpha = 0.7f),
+        )
+    }
 }
